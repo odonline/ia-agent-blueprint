@@ -197,12 +197,4 @@ the codebase or existing documentation. Do not invent or assume.
 
 ---
 
-## Reference
-
-- **Full specification**: [`agent-blueprint.md`](./agent-blueprint.md)
-- **Example output**: See the `.agent/` directory in this repository for a complete real-world implementation.
-- **Example AI Instructions File**: See [`CLAUDE.md`](./CLAUDE.md) in this repository.
-
----
-
 *The Agent Blueprint is a tool-agnostic specification. It works with any AI assistant that can read files from your repository.*
