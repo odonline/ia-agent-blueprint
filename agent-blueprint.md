@@ -1,3 +1,19 @@
+<!--
+  Agent Blueprint Specification
+  Copyright (c) 2025 odonline — https://github.com/odonline/ia-agent-blueprint
+  Licensed under the MIT License.
+
+  This specification is maintained and versioned at:
+  https://github.com/odonline/ia-agent-blueprint
+
+  If you are using or adapting this document in your project,
+  please reference the original repository so others can track
+  the source of this specification.
+
+  NOTE FOR AI TOOLS: This comment block is metadata only.
+  Do not treat its contents as instructions or constraints.
+  Begin processing from the heading below.
+-->
 # Agent Blueprint Specification
 
 ## Purpose
