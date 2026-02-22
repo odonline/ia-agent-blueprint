@@ -59,6 +59,8 @@ your-project/
 
 The `.agent/` files are the **source of truth**. The `CLAUDE.md` / `AI_INSTRUCTIONS.md` file is the **compiled output** — a single, scannable document that synthesizes all five files into direct instructions for the AI.
 
+![generated-demo-preview](generated-demo-preview.png)
+
 ---
 
 ## Quick Start
