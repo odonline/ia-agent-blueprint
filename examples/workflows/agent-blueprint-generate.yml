@@ -1,0 +1,434 @@
+# =============================================================================
+# Agent Blueprint — Auto-Generate Context Files
+# =============================================================================
+# This workflow generates AI agent context files using the Agent Blueprint
+# specification. It can be triggered on first commit, manually, or on demand.
+#
+# HOW TO USE:
+#   1. Copy this file to your repo's .github/workflows/ directory
+#   2. Copy agent-blueprint.md to your repo root
+#   3. Set up the required secret (see below)
+#   4. Push — the workflow runs automatically on the first push
+#
+# REQUIRED SECRETS:
+#   - OPENAI_API_KEY: Your OpenAI API key (for GPT-4o analysis)
+#     OR
+#   - ANTHROPIC_API_KEY: Your Anthropic API key (for Claude analysis)
+#
+# =============================================================================
+
+name: "Agent Blueprint — Generate Context Files"
+
+on:
+  # ── Trigger on first push to main (or any branch) ──
+  push:
+    branches: [main, master]
+    paths:
+      - "agent-blueprint.md"
+
+  # ── Manual trigger from GitHub UI ──
+  workflow_dispatch:
+    inputs:
+      ai_provider:
+        description: "AI Provider to use"
+        required: true
+        default: "openai"
+        type: choice
+        options:
+          - openai
+          - anthropic
+      ai_instructions_file:
+        description: "Name of the consolidated AI instructions file"
+        required: true
+        default: "AI_INSTRUCTIONS.md"
+        type: choice
+        options:
+          - AI_INSTRUCTIONS.md
+          - CLAUDE.md
+          - GEMINI.md
+          - CURSOR.md
+      force_regenerate:
+        description: "Force regeneration even if files exist"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-agent-context:
+    name: "Generate Agent Context Files"
+    runs-on: ubuntu-latest
+
+    env:
+      AI_PROVIDER: ${{ github.event.inputs.ai_provider || 'openai' }}
+      AI_INSTRUCTIONS_FILE: ${{ github.event.inputs.ai_instructions_file || 'AI_INSTRUCTIONS.md' }}
+      FORCE_REGENERATE: ${{ github.event.inputs.force_regenerate || 'false' }}
+
+    steps:
+      # ── 1. Checkout the repository ──
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Check if this is the first run or if files already exist ──
+      - name: Check existing agent context
+        id: check_existing
+        run: |
+          if [ -d ".agent" ] && [ "$FORCE_REGENERATE" != "true" ]; then
+            echo "agent_exists=true" >> $GITHUB_OUTPUT
+            echo "::notice::Agent context files already exist. Use force_regenerate to overwrite."
+          else
+            echo "agent_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -f "agent-blueprint.md" ]; then
+            echo "blueprint_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "blueprint_exists=false" >> $GITHUB_OUTPUT
+            echo "::error::agent-blueprint.md not found in repository root!"
+            exit 1
+          fi
+
+      # ── 3. Collect project context for the LLM ──
+      - name: Collect project context
+        if: steps.check_existing.outputs.agent_exists == 'false'
+        id: context
+        run: |
+          echo "=== Collecting project context ==="
+
+          # Get the file tree (max 3 levels deep, exclude hidden dirs and node_modules)
+          echo "## Project Structure" > /tmp/project_context.md
+          echo '```' >> /tmp/project_context.md
+          find . -maxdepth 3 \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './.next/*' \
+            -not -path './dist/*' \
+            -not -path './build/*' \
+            -not -path './.agent/*' \
+            | head -200 >> /tmp/project_context.md
+          echo '```' >> /tmp/project_context.md
+
+          # Get README if it exists
+          echo "" >> /tmp/project_context.md
+          echo "## README.md" >> /tmp/project_context.md
+          if [ -f "README.md" ]; then
+            echo '```markdown' >> /tmp/project_context.md
+            head -300 README.md >> /tmp/project_context.md
+            echo '```' >> /tmp/project_context.md
+          else
+            echo "No README.md found." >> /tmp/project_context.md
+          fi
+
+          # Get package.json if it exists
+          echo "" >> /tmp/project_context.md
+          echo "## package.json" >> /tmp/project_context.md
+          if [ -f "package.json" ]; then
+            echo '```json' >> /tmp/project_context.md
+            cat package.json >> /tmp/project_context.md
+            echo '```' >> /tmp/project_context.md
+          fi
+
+          # Get other config files
+          for config_file in tsconfig.json pyproject.toml Cargo.toml go.mod pom.xml build.gradle composer.json Gemfile requirements.txt .eslintrc.json .prettierrc; do
+            if [ -f "$config_file" ]; then
+              echo "" >> /tmp/project_context.md
+              echo "## $config_file" >> /tmp/project_context.md
+              echo '```' >> /tmp/project_context.md
+              head -100 "$config_file" >> /tmp/project_context.md
+              echo '```' >> /tmp/project_context.md
+            fi
+          done
+
+          # Get CI/CD config if exists
+          if [ -d ".github/workflows" ]; then
+            echo "" >> /tmp/project_context.md
+            echo "## CI/CD Workflows" >> /tmp/project_context.md
+            for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+              if [ -f "$wf" ]; then
+                echo "### $wf" >> /tmp/project_context.md
+                echo '```yaml' >> /tmp/project_context.md
+                head -50 "$wf" >> /tmp/project_context.md
+                echo '```' >> /tmp/project_context.md
+              fi
+            done
+          fi
+
+          # Get Dockerfile if exists
+          if [ -f "Dockerfile" ]; then
+            echo "" >> /tmp/project_context.md
+            echo "## Dockerfile" >> /tmp/project_context.md
+            echo '```dockerfile' >> /tmp/project_context.md
+            head -60 Dockerfile >> /tmp/project_context.md
+            echo '```' >> /tmp/project_context.md
+          fi
+
+          # Count lines of code by extension
+          echo "" >> /tmp/project_context.md
+          echo "## Code Statistics" >> /tmp/project_context.md
+          echo '```' >> /tmp/project_context.md
+          find . -type f \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './dist/*' \
+            -not -path './build/*' \
+            \( -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' \
+               -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' \
+               -o -name '*.rb' -o -name '*.php' -o -name '*.css' -o -name '*.html' \
+               -o -name '*.vue' -o -name '*.svelte' \) \
+            | xargs wc -l 2>/dev/null | tail -1 >> /tmp/project_context.md || echo "No source files found" >> /tmp/project_context.md
+          echo '```' >> /tmp/project_context.md
+
+          echo "context_file=/tmp/project_context.md" >> $GITHUB_OUTPUT
+          echo "::notice::Project context collected successfully."
+
+      # ── 4. Read the blueprint specification ──
+      - name: Read blueprint specification
+        if: steps.check_existing.outputs.agent_exists == 'false'
+        id: blueprint
+        run: |
+          BLUEPRINT=$(cat agent-blueprint.md)
+          # Store in a file for the next step (avoid env var size limits)
+          cp agent-blueprint.md /tmp/blueprint.md
+          echo "blueprint_file=/tmp/blueprint.md" >> $GITHUB_OUTPUT
+
+      # ── 5. Generate agent context files using LLM ──
+      - name: Generate agent context files (OpenAI)
+        if: steps.check_existing.outputs.agent_exists == 'false' && env.AI_PROVIDER == 'openai'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::OPENAI_API_KEY secret is not set!"
+            exit 1
+          fi
+
+          BLUEPRINT=$(cat /tmp/blueprint.md)
+          PROJECT_CONTEXT=$(cat /tmp/project_context.md)
+          AI_FILE="${AI_INSTRUCTIONS_FILE}"
+
+          # Create .agent directory
+          mkdir -p .agent
+
+          # ── Build the prompt ──
+          SYSTEM_PROMPT="You are an expert software architect AI. You analyze software projects and generate structured context files following the Agent Blueprint Specification.
+
+          You MUST generate ALL files as a single JSON response with this exact structure:
+          {
+            \"agent_md\": \"<content of agent.md>\",
+            \"roles_md\": \"<content of roles.md>\",
+            \"skills_md\": \"<content of skills.md>\",
+            \"business_md\": \"<content of business.md>\",
+            \"constraints_md\": \"<content of constraints.md>\",
+            \"ai_instructions_md\": \"<content of ${AI_FILE}>\"
+          }
+
+          Follow these rules strictly:
+          - Use clear, concise, technical language
+          - Avoid creative or conversational tone
+          - Mark unknowns explicitly as 'Unknown' or 'Not specified'
+          - Do NOT invent business rules or assume requirements
+          - The AI Instructions file must be written in second-person imperative
+          - Ensure internal consistency across all files
+          - Output ONLY valid JSON, no markdown code fences, no commentary"
+
+          USER_PROMPT="Analyze the following project and generate all required output artifacts according to the Agent Blueprint Specification.
+
+          === AGENT BLUEPRINT SPECIFICATION ===
+          ${BLUEPRINT}
+
+          === PROJECT CONTEXT ===
+          ${PROJECT_CONTEXT}
+
+          Generate all 6 files now. The consolidated AI instructions file should be named '${AI_FILE}'.
+          Remember: output ONLY a valid JSON object with the 6 keys."
+
+          # ── Call OpenAI API ──
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "$(jq -n \
+              --arg system "$SYSTEM_PROMPT" \
+              --arg user "$USER_PROMPT" \
+              '{
+                model: "gpt-4o",
+                messages: [
+                  { role: "system", content: $system },
+                  { role: "user", content: $user }
+                ],
+                temperature: 0.2,
+                max_tokens: 16000,
+                response_format: { type: "json_object" }
+              }'
+            )")
+
+          # Check for errors
+          ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$ERROR" ]; then
+            echo "::error::OpenAI API error: $ERROR"
+            exit 1
+          fi
+
+          # Extract the content
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+
+          if [ -z "$CONTENT" ] || [ "$CONTENT" = "null" ]; then
+            echo "::error::Empty response from OpenAI API"
+            echo "$RESPONSE" | jq .
+            exit 1
+          fi
+
+          # ── Write the files ──
+          echo "$CONTENT" | jq -r '.agent_md' > .agent/agent.md
+          echo "$CONTENT" | jq -r '.roles_md' > .agent/roles.md
+          echo "$CONTENT" | jq -r '.skills_md' > .agent/skills.md
+          echo "$CONTENT" | jq -r '.business_md' > .agent/business.md
+          echo "$CONTENT" | jq -r '.constraints_md' > .agent/constraints.md
+          echo "$CONTENT" | jq -r '.ai_instructions_md' > "${AI_FILE}"
+
+          echo "::notice::All agent context files generated successfully!"
+          echo "Generated files:"
+          ls -la .agent/
+          echo "---"
+          ls -la "${AI_FILE}"
+
+      - name: Generate agent context files (Anthropic)
+        if: steps.check_existing.outputs.agent_exists == 'false' && env.AI_PROVIDER == 'anthropic'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -e
+
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set!"
+            exit 1
+          fi
+
+          BLUEPRINT=$(cat /tmp/blueprint.md)
+          PROJECT_CONTEXT=$(cat /tmp/project_context.md)
+          AI_FILE="${AI_INSTRUCTIONS_FILE}"
+
+          mkdir -p .agent
+
+          SYSTEM_PROMPT="You are an expert software architect AI. You analyze software projects and generate structured context files following the Agent Blueprint Specification.
+
+          You MUST generate ALL files as a single JSON response with this exact structure:
+          {
+            \"agent_md\": \"<content of agent.md>\",
+            \"roles_md\": \"<content of roles.md>\",
+            \"skills_md\": \"<content of skills.md>\",
+            \"business_md\": \"<content of business.md>\",
+            \"constraints_md\": \"<content of constraints.md>\",
+            \"ai_instructions_md\": \"<content of ${AI_FILE}>\"
+          }
+
+          Follow these rules strictly:
+          - Use clear, concise, technical language
+          - Avoid creative or conversational tone
+          - Mark unknowns explicitly as 'Unknown' or 'Not specified'
+          - Do NOT invent business rules or assume requirements
+          - The AI Instructions file must be written in second-person imperative
+          - Ensure internal consistency across all files
+          - Output ONLY valid JSON, no markdown code fences, no commentary"
+
+          USER_PROMPT="Analyze the following project and generate all required output artifacts according to the Agent Blueprint Specification.
+
+          === AGENT BLUEPRINT SPECIFICATION ===
+          ${BLUEPRINT}
+
+          === PROJECT CONTEXT ===
+          ${PROJECT_CONTEXT}
+
+          Generate all 6 files now. The consolidated AI instructions file should be named '${AI_FILE}'.
+          Remember: output ONLY a valid JSON object with the 6 keys."
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n \
+              --arg system "$SYSTEM_PROMPT" \
+              --arg user "$USER_PROMPT" \
+              '{
+                model: "claude-sonnet-4-20250514",
+                max_tokens: 16000,
+                system: $system,
+                messages: [
+                  { role: "user", content: $user }
+                ],
+                temperature: 0.2
+              }'
+            )")
+
+          ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$ERROR" ]; then
+            echo "::error::Anthropic API error: $ERROR"
+            exit 1
+          fi
+
+          CONTENT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          if [ -z "$CONTENT" ] || [ "$CONTENT" = "null" ]; then
+            echo "::error::Empty response from Anthropic API"
+            echo "$RESPONSE" | jq .
+            exit 1
+          fi
+
+          # Clean up potential markdown fences
+          CONTENT=$(echo "$CONTENT" | sed 's/^```json//;s/^```//')
+
+          echo "$CONTENT" | jq -r '.agent_md' > .agent/agent.md
+          echo "$CONTENT" | jq -r '.roles_md' > .agent/roles.md
+          echo "$CONTENT" | jq -r '.skills_md' > .agent/skills.md
+          echo "$CONTENT" | jq -r '.business_md' > .agent/business.md
+          echo "$CONTENT" | jq -r '.constraints_md' > .agent/constraints.md
+          echo "$CONTENT" | jq -r '.ai_instructions_md' > "${AI_FILE}"
+
+          echo "::notice::All agent context files generated successfully!"
+          ls -la .agent/
+          ls -la "${AI_FILE}"
+
+      # ── 6. Create Pull Request with the generated files ──
+      - name: Create Pull Request
+        if: steps.check_existing.outputs.agent_exists == 'false'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: generate agent context files via Agent Blueprint"
+          title: "🤖 Agent Blueprint — Generated Context Files"
+          body: |
+            ## Agent Blueprint — Auto-Generated Context Files
+
+            This PR was automatically generated by the **Agent Blueprint** workflow.
+
+            ### Generated Files
+
+            | File | Description |
+            |---|---|
+            | `.agent/agent.md` | AI identity, persona, and behavioral guidelines |
+            | `.agent/roles.md` | Available roles and when to switch between them |
+            | `.agent/skills.md` | Tech stack, tools, and explicit knowledge gaps |
+            | `.agent/business.md` | Domain context, business rules, priorities |
+            | `.agent/constraints.md` | Hard limits, forbidden actions, escalation rules |
+            | `${{ env.AI_INSTRUCTIONS_FILE }}` | Consolidated, actionable AI instructions file |
+
+            ### What to do next
+
+            1. **Review each file** — Correct any wrong inferences
+            2. **Check for "Unknown" markers** — Fill in details the AI couldn't determine
+            3. **Merge this PR** — The files will be available for all AI assistants
+
+            ---
+            *Generated by [Agent Blueprint](https://github.com/odonline/ia-agent-blueprint)*
+          branch: agent-blueprint/generate-context
+          delete-branch: true
+          labels: |
+            agent-blueprint
+            documentation
+            automated

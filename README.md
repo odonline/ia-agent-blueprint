@@ -4,6 +4,8 @@
 > **Give any AI coding assistant a persistent memory of your project.**
 > The Agent Blueprint is a structured specification that tells an AI *who it is*, *what it can do*, and *how your project works* — before it writes a single line of code.
 
+🔧 **Also available as a [GitHub Action](#use-it-as-a-github-action-)** — automate context generation in your CI/CD pipeline.
+
 ---
 
 ## What Is This?
@@ -86,6 +88,64 @@ Read through the generated files. Correct any wrong inferences (the blueprint in
 ### Step 4 — Use it in every session
 
 From now on, any AI assistant that reads your repo root will have full context before it starts. No more re-explaining your stack.
+
+---
+
+## Use It as a GitHub Action 🚀 (alpha version for now)
+
+You can automate the Agent Blueprint with **GitHub Actions** — generate your context files automatically when a project is first pushed, or on demand.
+
+### Option A: Reusable Action (Recommended)
+
+Add this workflow to your repository (`.github/workflows/generate-agent-context.yml`):
+
+```yaml
+name: "Generate Agent Context"
+
+on:
+  push:
+    branches: [main]
+    paths: ["agent-blueprint.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: odonline/ia-agent-blueprint@v1
+        with:
+          ai_provider: "openai"
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          ai_instructions_file: "AI_INSTRUCTIONS.md"
+```
+
+This analyzes your project using GPT-4o (or Claude), generates all 6 context files, and opens a Pull Request for review.
+
+**Supports:** OpenAI and Anthropic APIs · Custom model selection · PR or direct commit
+
+### Option B: GitHub Copilot Agent
+
+If you have **GitHub Copilot Enterprise/Business**, no API key is needed. A workflow creates an Issue assigned to `@copilot`, which analyzes the project and opens a PR.
+
+### Option C: GitHub Agentic Workflows (Preview)
+
+Uses the new [GitHub Agentic Workflows](https://github.blog) (Feb 2026 preview) to define the task in natural language Markdown.
+
+### Comparison
+
+| Feature | Reusable Action | Copilot Agent | Agentic Workflow |
+|---|---|---|---|
+| API Key Required | ✅ Yes | ❌ No | ⚠️ Copilot Token |
+| Copilot Plan Required | ❌ No | ✅ Enterprise/Business | ✅ Yes |
+| Availability | ✅ GA | ✅ GA | ⚠️ Preview |
+| Cost | LLM API usage | Copilot plan | Copilot plan |
+
+> 📖 **Full documentation:** See [`GITHUB_ACTION_USAGE.md`](GITHUB_ACTION_USAGE.md) for detailed setup instructions, all inputs/outputs, and advanced examples.
 
 ---
 

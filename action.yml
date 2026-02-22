@@ -1,0 +1,335 @@
+---
+name: "Agent Blueprint"
+description: "Analyze a project and generate AI agent context files using the Agent Blueprint specification"
+author: "odonline"
+
+branding:
+  icon: "cpu"
+  color: "blue"
+
+inputs:
+  ai_provider:
+    description: "AI provider to use (openai or anthropic)"
+    required: true
+    default: "openai"
+  ai_instructions_file:
+    description: "Name for the consolidated AI instructions file"
+    required: false
+    default: "AI_INSTRUCTIONS.md"
+  blueprint_path:
+    description: "Path to the agent-blueprint.md file"
+    required: false
+    default: "agent-blueprint.md"
+  openai_api_key:
+    description: "OpenAI API key (required if ai_provider is openai)"
+    required: false
+  anthropic_api_key:
+    description: "Anthropic API key (required if ai_provider is anthropic)"
+    required: false
+  model:
+    description: "Model to use (e.g., gpt-4o, claude-sonnet-4-20250514)"
+    required: false
+    default: ""
+  create_pr:
+    description: "Whether to create a PR instead of committing directly"
+    required: false
+    default: "true"
+
+outputs:
+  files_generated:
+    description: "Whether files were successfully generated"
+    value: ${{ steps.generate.outputs.success }}
+  pr_number:
+    description: "Pull request number (if create_pr is true)"
+    value: ${{ steps.create_pr.outputs.pull-request-number }}
+
+runs:
+  using: "composite"
+  steps:
+    # ── Validate inputs ──
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [ ! -f "${{ inputs.blueprint_path }}" ]; then
+          echo "::error::Blueprint file not found at '${{ inputs.blueprint_path }}'"
+          exit 1
+        fi
+
+        if [ "${{ inputs.ai_provider }}" = "openai" ] && [ -z "${{ inputs.openai_api_key }}" ]; then
+          echo "::error::openai_api_key is required when ai_provider is 'openai'"
+          exit 1
+        fi
+
+        if [ "${{ inputs.ai_provider }}" = "anthropic" ] && [ -z "${{ inputs.anthropic_api_key }}" ]; then
+          echo "::error::anthropic_api_key is required when ai_provider is 'anthropic'"
+          exit 1
+        fi
+
+        echo "::notice::Configuration validated. Provider: ${{ inputs.ai_provider }}, Output: ${{ inputs.ai_instructions_file }}"
+
+    # ── Collect project context ──
+    - name: Collect project context
+      shell: bash
+      run: |
+        echo "## Project Structure" > /tmp/agent_bp_context.md
+        echo '```' >> /tmp/agent_bp_context.md
+        find . -maxdepth 3 \
+          -not -path './.git/*' \
+          -not -path './node_modules/*' \
+          -not -path './.next/*' \
+          -not -path './dist/*' \
+          -not -path './build/*' \
+          -not -path './.agent/*' \
+          | head -200 >> /tmp/agent_bp_context.md
+        echo '```' >> /tmp/agent_bp_context.md
+
+        # README
+        echo "" >> /tmp/agent_bp_context.md
+        echo "## README.md" >> /tmp/agent_bp_context.md
+        if [ -f "README.md" ]; then
+          echo '```markdown' >> /tmp/agent_bp_context.md
+          head -300 README.md >> /tmp/agent_bp_context.md
+          echo '```' >> /tmp/agent_bp_context.md
+        else
+          echo "No README.md found." >> /tmp/agent_bp_context.md
+        fi
+
+        # Package manifests and config files
+        for f in package.json tsconfig.json pyproject.toml Cargo.toml go.mod pom.xml \
+                 build.gradle composer.json Gemfile requirements.txt setup.py setup.cfg \
+                 .eslintrc.json .prettierrc Makefile CMakeLists.txt; do
+          if [ -f "$f" ]; then
+            echo "" >> /tmp/agent_bp_context.md
+            echo "## $f" >> /tmp/agent_bp_context.md
+            echo '```' >> /tmp/agent_bp_context.md
+            head -100 "$f" >> /tmp/agent_bp_context.md
+            echo '```' >> /tmp/agent_bp_context.md
+          fi
+        done
+
+        # CI/CD
+        if [ -d ".github/workflows" ]; then
+          echo "" >> /tmp/agent_bp_context.md
+          echo "## CI/CD Workflows" >> /tmp/agent_bp_context.md
+          for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+            if [ -f "$wf" ]; then
+              echo "### $wf" >> /tmp/agent_bp_context.md
+              echo '```yaml' >> /tmp/agent_bp_context.md
+              head -50 "$wf" >> /tmp/agent_bp_context.md
+              echo '```' >> /tmp/agent_bp_context.md
+            fi
+          done
+        fi
+
+        # Dockerfile
+        if [ -f "Dockerfile" ]; then
+          echo "" >> /tmp/agent_bp_context.md
+          echo "## Dockerfile" >> /tmp/agent_bp_context.md
+          echo '```dockerfile' >> /tmp/agent_bp_context.md
+          head -60 Dockerfile >> /tmp/agent_bp_context.md
+          echo '```' >> /tmp/agent_bp_context.md
+        fi
+
+        # Source code samples (first 5 source files, first 50 lines each)
+        echo "" >> /tmp/agent_bp_context.md
+        echo "## Source Code Samples" >> /tmp/agent_bp_context.md
+        find . -type f \
+          -not -path './.git/*' \
+          -not -path './node_modules/*' \
+          -not -path './dist/*' \
+          -not -path './build/*' \
+          \( -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' \
+             -o -name '*.py' -o -name '*.go' -o -name '*.rs' -o -name '*.java' \
+             -o -name '*.rb' -o -name '*.php' -o -name '*.vue' -o -name '*.svelte' \) \
+          | head -5 | while read -r srcfile; do
+            echo "### $srcfile" >> /tmp/agent_bp_context.md
+            echo '```' >> /tmp/agent_bp_context.md
+            head -50 "$srcfile" >> /tmp/agent_bp_context.md
+            echo '```' >> /tmp/agent_bp_context.md
+          done
+
+        echo "::notice::Project context collected ($(wc -c < /tmp/agent_bp_context.md) bytes)"
+
+    # ── Generate files with LLM ──
+    - name: Generate agent context files
+      id: generate
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        AI_PROVIDER: ${{ inputs.ai_provider }}
+        AI_FILE: ${{ inputs.ai_instructions_file }}
+        BLUEPRINT_PATH: ${{ inputs.blueprint_path }}
+        MODEL_OVERRIDE: ${{ inputs.model }}
+      run: |
+        set -e
+
+        BLUEPRINT=$(cat "$BLUEPRINT_PATH")
+        PROJECT_CONTEXT=$(cat /tmp/agent_bp_context.md)
+
+        mkdir -p .agent
+
+        SYSTEM_PROMPT="You are an expert software architect AI. You analyze software projects and generate structured context files following the Agent Blueprint Specification.
+
+        You MUST generate ALL files as a single JSON response with this exact structure:
+        {
+          \"agent_md\": \"<content of agent.md>\",
+          \"roles_md\": \"<content of roles.md>\",
+          \"skills_md\": \"<content of skills.md>\",
+          \"business_md\": \"<content of business.md>\",
+          \"constraints_md\": \"<content of constraints.md>\",
+          \"ai_instructions_md\": \"<content of the consolidated AI instructions file>\"
+        }
+
+        Rules:
+        - Use clear, concise, technical language
+        - Avoid creative or conversational tone
+        - Mark unknowns as 'Unknown' or 'Not specified'
+        - Do NOT invent business rules or assume requirements
+        - The AI Instructions file must be in second-person imperative
+        - Ensure internal consistency across all files
+        - Output ONLY valid JSON, no code fences, no commentary"
+
+        USER_PROMPT="Analyze the following project and generate all required output artifacts according to the Agent Blueprint Specification.
+
+        === AGENT BLUEPRINT SPECIFICATION ===
+        ${BLUEPRINT}
+
+        === PROJECT CONTEXT ===
+        ${PROJECT_CONTEXT}
+
+        Generate all 6 files. The consolidated AI instructions file should be named '${AI_FILE}'.
+        Output ONLY a valid JSON object."
+
+        if [ "$AI_PROVIDER" = "openai" ]; then
+          MODEL="${MODEL_OVERRIDE:-gpt-4o}"
+          RESPONSE=$(curl -s --max-time 120 https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "$(jq -n \
+              --arg system "$SYSTEM_PROMPT" \
+              --arg user "$USER_PROMPT" \
+              --arg model "$MODEL" \
+              '{
+                model: $model,
+                messages: [
+                  { role: "system", content: $system },
+                  { role: "user", content: $user }
+                ],
+                temperature: 0.2,
+                max_tokens: 16000,
+                response_format: { type: "json_object" }
+              }'
+            )")
+
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+
+        elif [ "$AI_PROVIDER" = "anthropic" ]; then
+          MODEL="${MODEL_OVERRIDE:-claude-sonnet-4-20250514}"
+          RESPONSE=$(curl -s --max-time 120 https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n \
+              --arg system "$SYSTEM_PROMPT" \
+              --arg user "$USER_PROMPT" \
+              --arg model "$MODEL" \
+              '{
+                model: $model,
+                max_tokens: 16000,
+                system: $system,
+                messages: [
+                  { role: "user", content: $user }
+                ],
+                temperature: 0.2
+              }'
+            )")
+
+          CONTENT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+        fi
+
+        # Validate response
+        if [ -z "$CONTENT" ] || [ "$CONTENT" = "null" ]; then
+          echo "::error::Empty response from $AI_PROVIDER API"
+          echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+        # Clean potential markdown fences
+        CONTENT=$(echo "$CONTENT" | sed '/^```json$/d;/^```$/d')
+
+        # Validate JSON structure
+        if ! echo "$CONTENT" | jq -e '.agent_md and .roles_md and .skills_md and .business_md and .constraints_md and .ai_instructions_md' > /dev/null 2>&1; then
+          echo "::error::Response is not valid JSON or missing required keys"
+          echo "$CONTENT" | head -50
+          echo "success=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+        # Write files
+        echo "$CONTENT" | jq -r '.agent_md' > .agent/agent.md
+        echo "$CONTENT" | jq -r '.roles_md' > .agent/roles.md
+        echo "$CONTENT" | jq -r '.skills_md' > .agent/skills.md
+        echo "$CONTENT" | jq -r '.business_md' > .agent/business.md
+        echo "$CONTENT" | jq -r '.constraints_md' > .agent/constraints.md
+        echo "$CONTENT" | jq -r '.ai_instructions_md' > "${AI_FILE}"
+
+        echo "success=true" >> $GITHUB_OUTPUT
+        echo "::notice::✅ All agent context files generated successfully!"
+
+        echo "### Generated Files" >> $GITHUB_STEP_SUMMARY
+        echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+        echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+        for f in .agent/agent.md .agent/roles.md .agent/skills.md .agent/business.md .agent/constraints.md "${AI_FILE}"; do
+          if [ -f "$f" ]; then
+            SIZE=$(wc -c < "$f")
+            echo "| \`$f\` | ${SIZE} bytes |" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+
+    # ── Create PR (optional) ──
+    - name: Create Pull Request
+      if: inputs.create_pr == 'true' && steps.generate.outputs.success == 'true'
+      id: create_pr
+      uses: peter-evans/create-pull-request@v7
+      with:
+        commit-message: "chore: generate agent context files via Agent Blueprint"
+        title: "🤖 Agent Blueprint — Generated Context Files"
+        body: |
+          ## Agent Blueprint — Auto-Generated Context Files
+
+          This PR was automatically generated by the **Agent Blueprint** GitHub Action.
+
+          ### Generated Files
+
+          | File | Description |
+          |---|---|
+          | `.agent/agent.md` | AI identity, persona, and behavioral guidelines |
+          | `.agent/roles.md` | Available roles and role-switching rules |
+          | `.agent/skills.md` | Tech stack, tools, and knowledge gaps |
+          | `.agent/business.md` | Domain context and business rules |
+          | `.agent/constraints.md` | Hard limits and forbidden actions |
+          | `${{ inputs.ai_instructions_file }}` | Consolidated AI instructions |
+
+          ### Next Steps
+
+          1. **Review each file** — Correct any wrong inferences
+          2. **Fill in "Unknown" markers** — Add details the AI couldn't determine
+          3. **Merge this PR** — Make the context available for all AI assistants
+
+          ---
+          *Generated by [Agent Blueprint](https://github.com/odonline/ia-agent-blueprint)*
+        branch: agent-blueprint/generate-context
+        delete-branch: true
+
+    # ── Direct commit (if not creating PR) ──
+    - name: Commit files directly
+      if: inputs.create_pr != 'true' && steps.generate.outputs.success == 'true'
+      shell: bash
+      run: |
+        git config user.name "Agent Blueprint Bot"
+        git config user.email "agent-blueprint[bot]@users.noreply.github.com"
+        git add .agent/ "${{ inputs.ai_instructions_file }}"
+        git commit -m "chore: generate agent context files via Agent Blueprint" || echo "No changes to commit"
+        git push

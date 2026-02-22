@@ -1,0 +1,106 @@
+# =============================================================================
+# Agent Blueprint — Copilot Coding Agent Approach
+# =============================================================================
+# This workflow uses GitHub Copilot's coding agent to analyze the project
+# and generate context files. It works by creating an issue and assigning
+# it to @copilot, which then opens a PR with the generated files.
+#
+# REQUIREMENTS:
+#   - GitHub Copilot Enterprise or Business plan
+#   - Copilot coding agent enabled for the organization
+#
+# HOW IT WORKS:
+#   1. Triggered manually or on first push
+#   2. Creates an issue with the blueprint prompt
+#   3. Assigns the issue to @copilot
+#   4. Copilot analyzes the project and creates a PR
+#
+# =============================================================================
+
+name: "Agent Blueprint — Copilot Agent"
+
+on:
+  workflow_dispatch:
+    inputs:
+      ai_instructions_file:
+        description: "Name of the consolidated AI instructions file"
+        required: true
+        default: "AI_INSTRUCTIONS.md"
+        type: choice
+        options:
+          - AI_INSTRUCTIONS.md
+          - CLAUDE.md
+          - GEMINI.md
+          - CURSOR.md
+          - .github/copilot-instructions.md
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  create-copilot-task:
+    name: "Create Issue for Copilot Agent"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for blueprint file
+        run: |
+          if [ ! -f "agent-blueprint.md" ]; then
+            echo "::error::agent-blueprint.md not found in repository root!"
+            echo "Please add agent-blueprint.md to your repository first."
+            echo "Get it from: https://github.com/odonline/ia-agent-blueprint"
+            exit 1
+          fi
+
+      - name: Create issue for Copilot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const aiFile = '${{ github.event.inputs.ai_instructions_file }}' || 'AI_INSTRUCTIONS.md';
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🤖 Generate Agent Context Files via Blueprint',
+              body: `## Task
+
+            Read the \`agent-blueprint.md\` file at the root of this repository.
+
+            Analyze this project following the blueprint's instructions and generate **all required output artifacts**:
+
+            ### Files to generate:
+
+            1. \`.agent/agent.md\` — Identity and behavior
+            2. \`.agent/roles.md\` — Roles and responsibilities
+            3. \`.agent/skills.md\` — Technical capabilities
+            4. \`.agent/business.md\` — Domain and business context
+            5. \`.agent/constraints.md\` — Hard constraints and forbidden actions
+            6. \`${aiFile}\` — Consolidated AI Instructions File (synthesized from all above)
+
+            ### Rules to follow:
+
+            - Follow the **Agent Blueprint Specification** in \`agent-blueprint.md\` exactly
+            - Use clear, concise, technical language
+            - Mark unknowns explicitly as "Unknown" or "Not specified"
+            - Do NOT invent business rules or assume requirements
+            - The consolidated file (\`${aiFile}\`) must be written in second-person imperative
+            - Ensure internal consistency across all generated files
+            - The consolidated file must be the LAST one generated, as it depends on all others
+
+            ### Important:
+
+            - Create the \`.agent/\` directory if it doesn't exist
+            - Analyze the full project: source code, configs, dependencies, README, CI/CD, etc.
+            - Prefer explicit signals from the code over inference
+            - If information is missing or ambiguous, mark it as unknown — do not guess`,
+              labels: ['agent-blueprint', 'documentation', 'copilot'],
+              assignees: ['copilot']
+            });
+
+            core.notice(`Issue #${issue.data.number} created and assigned to @copilot`);
+            core.notice(`Copilot will analyze the project and create a PR with the generated files.`);
+            core.setOutput('issue_number', issue.data.number);
