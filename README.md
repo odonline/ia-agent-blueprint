@@ -13,7 +13,12 @@ When you follow this blueprint, you create a `/.agent/` directory with a set of 
 
 Instead of re-explaining your architecture, rules, and constraints in every conversation, you write them once. The AI reads them automatically at the start of each session.
 
+[Source Project] → [AI Analysis Engine] → [Agent Context Files]
+    (Code)          (Processing)        (Structured Output)
+
 ---
+
+
 
 ## Why Use It?
 
