@@ -177,6 +177,12 @@ To regenerate, run the same Step 2 prompt and instruct the AI to use the existin
 Use this prompt when you want the AI to regenerate or update the context files after significant changes:
 
 ```
+Analyze this project and generate all context files according to Agent Blueprint Specification 
+agent-blueprint.md
+```
+ 
+or use a more detailed one if you want: 
+```
 Read agent-blueprint.md in this repository.
 
 Using the existing .agent/ files as reference and the current codebase
