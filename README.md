@@ -1,5 +1,6 @@
 # Agent Blueprint — User Guide
 
+![agent-blueprint-model](agent-blueprint-model.png)
 > **Give any AI coding assistant a persistent memory of your project.**
 > The Agent Blueprint is a structured specification that tells an AI *who it is*, *what it can do*, and *how your project works* — before it writes a single line of code.
 
