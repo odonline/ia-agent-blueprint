@@ -4,7 +4,7 @@
 > **Give any AI coding assistant a persistent memory of your project.**
 > The Agent Blueprint is a structured specification that tells an AI *who it is*, *what it can do*, and *how your project works* — before it writes a single line of code.
 
-🔧 **Also available as a [GitHub Action](#use-it-as-a-github-action-)** — automate context generation in your CI/CD pipeline.
+🔧 **Also available as a [GitHub Action](#use-it-as-a-github-action)** — automate context generation in your CI/CD pipeline.
 
 ---
 
@@ -74,6 +74,13 @@ Add `agent-blueprint.md` to the root of your project. This is the specification 
 Open your AI assistant and give it this prompt:
 
 ```
+Analyze this project and generate all context files according to Agent Blueprint Specification 
+agent-blueprint.md
+```
+ 
+or use a more detailed one if you want: 
+
+```
 Read agent-blueprint.md at the root of this project.
 Analyze the repository following its instructions and generate all required
 output artifacts: agent.md, roles.md, skills.md, business.md, and constraints.md
@@ -93,9 +100,9 @@ From now on, any AI assistant that reads your repo root will have full context b
 
 ---
 
-## Use It as a GitHub Action 🚀 (alpha version for now)
+## Use It as a GitHub Action
 
-You can automate the Agent Blueprint with **GitHub Actions** — generate your context files automatically when a project is first pushed, or on demand.
+> 🚀 **Alpha version for now** — You can automate the Agent Blueprint with **GitHub Actions**: generate your context files automatically when a project is first pushed, or on demand.
 
 ### Option A: Reusable Action (Recommended)
 
@@ -244,12 +251,6 @@ To regenerate, run the same Step 2 prompt and instruct the AI to use the existin
 
 Use this prompt when you want the AI to regenerate or update the context files after significant changes:
 
-```
-Analyze this project and generate all context files according to Agent Blueprint Specification 
-agent-blueprint.md
-```
- 
-or use a more detailed one if you want: 
 ```
 Read agent-blueprint.md in this repository.
 
