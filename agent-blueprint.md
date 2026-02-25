@@ -35,17 +35,21 @@ It defines how to construct one.
 When analyzing a project, the AI must consider:
 
 - Repository structure
-- Configuration files
-- Dependency manifests
+- Configuration files and environment variable definitions (`process.env.*`, `.env.example`)
+- Dependency manifests (`package.json`, `requirements.txt`, etc.)
 - Documentation (README, docs/)
 - CI/CD configuration
 - Naming conventions
 - Explicit comments or architecture notes
+- Source files — specifically for: stored procedure names, API endpoint definitions, middleware chain order, response shape conventions, and logging patterns
 
 The AI must prefer explicit signals over inference.
 
-If information is missing or ambiguous, it must be marked as unknown
+If information is missing or ambiguous, it must be marked as **Unknown** or **Not specified**
 instead of guessed.
+
+> **Key data must always be sourced from the actual code**, not derived from documentation.
+> Examples: SP names from model files, env vars from `process.env` usages, CLI commands from `package.json` scripts.
 
 ---
 
@@ -264,12 +268,13 @@ written directly to the AI reading the file.
 - Keep it scannable — one line per file
 
 **3. Architecture Overview**
-- Describe the core architectural pattern (state machine, observer, etc.)
-- List all named states, classes, or modes the system operates in
-- Include state transition rules as pseudocode or a table
+- Describe the core architectural pattern (state machine, observer, layered, etc.)
+- List all named states, layers, classes, or modes the system operates in
+- Include layer/state rules as pseudocode or a table
+- For layered architectures: include a layer contract table (what each layer can and cannot do)
 
 **4. Implementation Rules (Condensed)**
-- Extract the top 5–10 most critical rules from `rules.md`
+- Extract the top 5–10 most critical rules from `rules.md` or `constraints.md`
 - Focus on rules that are most commonly violated or most expensive to break
 - Use short, direct sentences
 
@@ -283,6 +288,7 @@ written directly to the AI reading the file.
 - Include package manager (e.g., `pnpm`, `npm`)
 - Include lint, build, test, and release commands
 - Note any non-obvious tool behaviors or flags
+- Source ALL commands from `package.json` scripts or equivalent — do not invent commands
 
 **7. Workflow Hooks**
 - Define pre-change, post-change, and per-operation checklists
@@ -305,7 +311,7 @@ Example hook structure:
 **8. Domain & Business Context**
 - Synthesize `business.md` into 3–5 bullet points
 - Prioritize business rules in order of importance
-- List any external dependencies that are NOT in the repo (e.g., external SDKs)
+- List any external dependencies that are NOT in the repo (e.g., external SDKs, external APIs)
 
 **9. Browser / Environment Targets**
 - List supported environments as a table
@@ -315,6 +321,57 @@ Example hook structure:
 - List concrete style conventions present in the codebase
 - Reference the most common patterns from the existing source files
 - Do not describe aspirational style — only what is already enforced
+- Include concrete code snippets for the 2–3 most repeated patterns (e.g., controller shape, model call, log call)
+
+**11. Data Reference: Key Identifiers (Sourced from Code)**
+
+This section makes the AI self-sufficient mid-task by providing quick-access facts it would otherwise have to grep for.
+
+For **database-driven projects**, include a table of:
+- Stored procedure / query names → operation they perform → valid operation codes/modes
+- Source: scan model or data-access files for all database call sites
+- Rule: list ONLY identifiers that exist in the codebase. Mark the source file.
+
+For **API-driven projects**, include a table of:
+- Endpoint paths → HTTP method → controller method → Joi-validated fields
+- Source: scan route files
+
+For **event-driven projects**, include:
+- Event names → emitter → expected handler(s)
+
+Example (SQL project):
+```markdown
+| SP / Query Name             | Operation              | Valid Modes |
+|-----------------------------|------------------------|-------------|
+| `sp_UserData`          | Load user record       | `'S'`       |
+| `sp_UsuarioAdd`   | Create user            | `'I'`       |
+```
+
+**12. Data Reference: Environment Variables (Sourced from Code)**
+
+Provide a complete table of environment variables, sourced by scanning `process.env.*`, `os.environ`, or equivalent in ALL source files.
+
+| Variable | Used In File | Required? | Default if any | Notes |
+|---|---|---|---|---|
+
+Rule: list ONLY variables found in the actual source code. Do not invent variables.
+Mark required variables clearly. If a variable has an insecure hardcoded fallback, note it.
+
+**13. Migration / Progress Status (If Applicable)**
+
+If the project is in an active migration, include:
+- Overall completion percentage and last-updated date
+- A summary table of migration tasks and their current status
+- A direct reference to the canonical live tracker file
+- A warning: "Do not mark anything complete unless the live tracker is updated"
+
+**14. Inter-System Call Pattern (If Applicable)**
+
+If two or more systems communicate (e.g., frontend → API, microservices), document:
+- The authentication/token lifecycle (how tokens are obtained, sent, refreshed, and expired)
+- The standard HTTP call shape used by the client
+- The standard response shape expected by the client
+- Error handling contract (e.g., on 403: refresh and retry once)
 
 ---
 
@@ -327,6 +384,7 @@ Example hook structure:
 - Ensure the file can be read in under 5 minutes
 - Avoid section headings that are vague (e.g., "Notes", "Misc", "Other")
 - Every section must be preceded by a meaningful one-line summary comment
+- Sections 11–14 must be sourced from actual code, not documentation — grep the source files
 
 ---
 
@@ -335,9 +393,11 @@ Example hook structure:
 Before finalizing the AI Instructions File, verify:
 
 - All role names match `roles.md` exactly
-- All state names match `rules.md` exactly
+- All state/layer names match `rules.md` or architecture docs exactly
 - All CLI commands match `package.json` or equivalent exactly
-- All browser targets match `constraints.md` or README exactly
+- All environment variables in Section 12 are verified against `process.env.*` usages in source
+- All SP/query names in Section 11 are verified against data-access file call sites
+- All browser/runtime targets match `constraints.md` or README exactly
 - No rule contradicts another rule in any `.agent/` file
 - The tone is consistent throughout (imperative, technical, neutral)
 
@@ -347,12 +407,13 @@ Before finalizing the AI Instructions File, verify:
 
 The AI Instructions File must be regenerated (not just updated) when:
 
-- The architectural pattern changes (e.g., from class-based to functional)
+- The architectural pattern changes (e.g., from class-based to functional, or monolith to layered)
 - A new AI tool is adopted as the primary coding assistant
-- The `.agent/rules.md` is restructured significantly
+- The `.agent/rules.md` or `.agent/constraints.md` is restructured significantly
 - The build pipeline or tooling changes substantially
+- Sections 11–14 are significantly out of date (new SPs, new env vars, migration state change)
 
-Minor additions (new rules, new CLI commands) may be incremental updates.
+Minor additions (new rules, new CLI commands, new SP entries) may be incremental updates.
 
 ---
 
@@ -361,15 +422,60 @@ Minor additions (new rules, new CLI commands) may be incremental updates.
 When instructed to generate the full project context using this blueprint,
 the AI must produce ALL of the following, in this order:
 
+**Phase 1 — Analysis** (before writing any file)
+- Scan all source files to extract: SP/query names, `process.env.*` usages, route definitions, response shapes, and code patterns
+- Do not begin writing until the analysis is complete
+
+**Phase 2 — Context Files** (output to `.agent/` directory)
 1. `agent.md` — Identity and behavior
 2. `roles.md` — Roles and responsibilities
 3. `skills.md` — Technical capabilities
 4. `business.md` — Domain and business context
 5. `constraints.md` — Hard constraints and forbidden actions
-6. `[TOOL_NAME].md` — AI Instructions File (synthesized from all of the above)
 
-All six files must be internally consistent.
-The AI Instructions File must be the LAST file generated,
-as it depends on all the others being complete.
+**Phase 3 — AI Instructions File(s)** (output to project root)
+6. `[TOOL_NAME].md` — AI Instructions File, synthesized from all of the above
+   - Must include Sections 11–14 sourced from Phase 1 analysis
+   - If multiple AI tools are used: generate one file per tool (e.g., `CLAUDE.md` + `GEMINI.md`)
+   - If tool-agnostic: generate `AI_INSTRUCTIONS.md`
+
+**Phase 4 — IDE Context File** (output to project root)
+7. `.cursorrules` — Condensed rules for Cursor IDE injection
+   - Must contain: Layer contract, Hard constraints (NEVER list), SP/query name list, critical env vars, standard code patterns, response shape
+   - Must reference `[TOOL_NAME].md` for full context
+   - Must be short enough to be read in under 90 seconds
+   - If the project uses GitHub Copilot: also generate `.github/copilot-instructions.md`
+
+**Phase 5 — README Linkage**
+8. Update (or confirm presence of) an AI notice at the top of `README.md`:
+   - Content: point AI tools to `[TOOL_NAME].md` before starting any task
+   - Example: `> **AI Coding Assistants**: Read [CLAUDE.md](CLAUDE.md) before any task.`
+
+All files must be internally consistent.
+The AI Instructions File must be generated AFTER the `.agent/` files,
+as it synthesizes from them.
+The `.cursorrules` file must be generated AFTER the AI Instructions File,
+as it is a condensed derivative of it.
+
+---
+
+## Important Note on Context Injection
+
+Not all AI tools automatically read project files. The effectiveness of this blueprint
+depends on understanding how each tool picks up context:
+
+| Tool | Auto-Injection Mechanism | No Action Needed? |
+|---|---|---|
+| Claude Code (CLI) | Reads `CLAUDE.md` from current dir and all parent dirs | ✅ Yes |
+| Cursor | Reads `.cursorrules` from project root | ✅ Yes |
+| GitHub Copilot | Reads `.github/copilot-instructions.md` | ✅ Yes |
+| Claude.ai (web) | Reads `CLAUDE.md` if using Projects feature | ⚠️ Only in Projects |
+| Gemini / Other tools | No automatic injection — user must reference the file | ❌ Must be mentioned |
+
+For tools that do NOT auto-inject, the recommended workaround is:
+- Instruct the user to reference the file at session start (e.g., "read CLAUDE.md before starting")
+- Or use the platform's knowledge/context system if available
+
+This is an intrinsic limitation of the tool, not of the blueprint.
 
 End of specification.

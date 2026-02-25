@@ -1,10 +1,47 @@
 # Agent Blueprint — User Guide
 
 ![agent-blueprint-model](agent-blueprint-model.png)
+
+> **AI Coding Assistants**: Read [CLAUDE.md](CLAUDE.md) (or your specific tool instructions) before starting any task.
+
 > **Give any AI coding assistant a persistent memory of your project.**
 > The Agent Blueprint is a structured specification that tells an AI *who it is*, *what it can do*, and *how your project works* — before it writes a single line of code.
 
 🔧 **Also available as a [GitHub Action](#use-it-as-a-github-action)** — automate context generation in your CI/CD pipeline.
+
+---
+
+## Quick Navigation
+
+- [🚀 Quick Start](#quick-start)
+- [📝 What Is This?](#what-is-this)
+- [🧩 Why Use It?](#why-use-it)
+- [📁 The File Structure](#the-file-structure)
+- [🤖 GitHub Action Automation](#use-it-as-a-github-action)
+- [📖 What Each File Does](#what-each-file-does)
+- [⚙️ Maintenance](#maintenance)
+
+---
+
+## Quick Start
+
+### Step 1 — Copy the blueprint
+Add `agent-blueprint.md` to the root of your project. This is the specification the AI will use to generate everything else.
+
+### Step 2 — Ask your AI to analyze the project
+Open your AI assistant and give it this prompt:
+
+```
+Read agent-blueprint.md at the root of this project.
+Analyze the repository following its instructions (especially Phase 1: Code Scanning).
+Generate all required artifacts: .agent/ files, instructions file, and IDE rules.
+```
+
+### Step 3 — Review and commit
+Read through the generated files. Check if Section 11 (SPs/APIs) and Section 12 (Env Vars) correctly captured data from your code. Commit everything.
+
+### Step 4 — Use it in every session
+From now on, the AI will auto-inject this context (using `.cursorrules`, `CLAUDE.md`, etc.) and know exactly how to work with your project.
 
 ---
 
@@ -41,62 +78,29 @@ With the blueprint, the AI:
 
 ## The File Structure
 
-Running the blueprint produces the following files in your repository:
+The blueprint generates a structured hierarchy to serve both as long-term memory and short-term IDE context:
 
 ```
 your-project/
-├── .agent/
-│   ├── agent.md          # AI identity, persona, and behavioral guidelines
-│   ├── roles.md          # Available roles and when to switch between them
-│   ├── skills.md         # Tech stack, tools, and explicit knowledge gaps
-│   ├── business.md       # Domain context, business rules, priorities
-│   └── constraints.md    # Hard limits, forbidden actions, escalation rules
+├── .agent/              # SOURCE OF TRUTH (Reference files)
+│   ├── agent.md         # AI identity and persona
+│   ├── roles.md         # When to switch between roles
+│   ├── skills.md        # Tech stack and knowledge gaps
+│   ├── business.md      # Domain rules and requirements
+│   └── constraints.md   # Hard limits (The "Red Lines")
 │
-├── CLAUDE.md             # (or GEMINI.md, AI_INSTRUCTIONS.md, etc.)
-│                         # Consolidated, actionable file for the AI tool
-└── agent-blueprint.md    # This specification (keep it in the repo)
+├── CLAUDE.md            # COMPILED CONTEXT (Scannable manual)
+│                        # (or GEMINI.md, AI_INSTRUCTIONS.md)
+│
+├── .cursorrules         # IDE CONTEXT (Condensed rules)
+│                        # Includes SP list, Env vars, and Patterns
+│
+└── agent-blueprint.md   # This specification (Keep it in root)
 ```
 
 The `.agent/` files are the **source of truth**. The `CLAUDE.md` / `AI_INSTRUCTIONS.md` file is the **compiled output** — a single, scannable document that synthesizes all five files into direct instructions for the AI.
 
 ![generated-demo-preview](generated-demo-preview.png)
-
----
-
-## Quick Start
-
-### Step 1 — Copy the blueprint
-
-Add `agent-blueprint.md` to the root of your project. This is the specification the AI will use to generate everything else.
-
-### Step 2 — Ask your AI to analyze the project
-
-Open your AI assistant and give it this prompt:
-
-```
-Analyze this project and generate all context files according to Agent Blueprint Specification 
-agent-blueprint.md
-```
- 
-or use a more detailed one if you want: 
-
-```
-Read agent-blueprint.md at the root of this project.
-Analyze the repository following its instructions and generate all required
-output artifacts: agent.md, roles.md, skills.md, business.md, and constraints.md
-inside a .agent/ directory.
-Then generate a CLAUDE.md (or AI_INSTRUCTIONS.md) at the project root.
-```
-
-The AI will analyze your code, configs, README, and any existing docs, then produce all the files.
-
-### Step 3 — Review and commit
-
-Read through the generated files. Correct any wrong inferences (the blueprint instructs the AI to mark unknowns explicitly, not invent them). Commit everything.
-
-### Step 4 — Use it in every session
-
-From now on, any AI assistant that reads your repo root will have full context before it starts. No more re-explaining your stack.
 
 ---
 
@@ -143,18 +147,16 @@ The most important file. Defines what the AI must never do.
 ### `CLAUDE.md` / `AI_INSTRUCTIONS.md` — The Compiled Manual
 The single file the AI reads when it starts working. It synthesizes all five files above into a scannable, actionable reference.
 
-- Organized in a fixed 10-section structure
-- Written in direct imperative ("You must...", "Never...", "Always...")
-- Includes workflow hooks (checklists for before and after every change)
-- Named per the AI tool in use (see table below)
+- **Dynamic Data**: Contains tables of Stored Procedures, Env Variables, and API endpoints sourced directly from code.
+- **Workflow Hooks**: Checklists for before and after every change.
+- **Role Switching**: Explicit instructions on when to change personas.
 
-| AI Tool | Filename |
-|---|---|
-| Claude (Anthropic) | `CLAUDE.md` |
-| Gemini (Google) | `GEMINI.md` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Cursor | `.cursorrules` |
-| Multiple tools | `AI_INSTRUCTIONS.md` |
+### `.cursorrules` / `.github/copilot-instructions.md` — The IDE Injector
+A condensed derivative designed for real-time IDE context injection.
+
+- **Ultra-fast**: Designed to be read in under 90 seconds.
+- **Hard Constraints**: Lists only the most critical prohibitions.
+- **References**: Points the AI to `CLAUDE.md` for full implementation details.
 
 ---
 
@@ -228,7 +230,8 @@ Uses the new [GitHub Agentic Workflows](https://github.blog) (Feb 2026 preview) 
 - The architecture changes significantly
 - You switch to a different AI tool as your primary assistant
 - The tech stack changes substantially (e.g., migrating from vanilla JS to a framework)
-- The `.agent/rules.md` is restructured or most rules change
+- The `.agent/rules.md` or `.agent/constraints.md` is restructured
+- **Sections 11–14 are out of date** (new Stored Procedures, new Env Variables, or significant migration progress)
 
 To regenerate, run the same Step 2 prompt and instruct the AI to use the existing `.agent/` files as reference input, but treat the live codebase as the source of truth.
 
@@ -259,10 +262,9 @@ Using the existing .agent/ files as reference and the current codebase
 as the source of truth, regenerate all five context files:
 agent.md, roles.md, skills.md, business.md, and constraints.md.
 
-Then regenerate CLAUDE.md (or AI_INSTRUCTIONS.md) from the updated files.
-
-Mark any information as "Unknown" if it cannot be determined from
-the codebase or existing documentation. Do not invent or assume.
+Then regenerate CLAUDE.md, .cursorrules, and any other tool-specific 
+instructions. Mark any information as "Unknown" if it cannot be 
+determined from the codebase. Do not invent details.
 ```
 
 ---
